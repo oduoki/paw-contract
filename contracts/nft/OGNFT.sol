@@ -377,7 +377,7 @@ contract OGNFT is
   /// @param _categoryId specified category Id
   function _harvestFromMasterPAW(address _user, uint256 _categoryId) internal {
     address stakeToken = address(ogOwnerToken[_categoryId]);
-    (uint256 userStakeAmount, , , ) = masterPAW.userInfo(stakeToken, _user);
+    (uint256 userStakeAmount, , , , , ) = masterPAW.userInfo(stakeToken, _user);
     if (userStakeAmount == 0) {
       emit Harvest(_user, _categoryId, 0);
       return;
@@ -456,9 +456,17 @@ contract OGNFT is
   function masterPAWCall(
     address, /*stakeToken*/
     address, /*userAddr*/
-    uint256, /*reward*/
-    uint256 /*lastRewardBlock*/
+    uint256 /*reward*/
   ) external override {
     return;
+  }
+
+  function bubbleRewardLimit(
+    address,
+    address,
+    uint256,
+    uint256 reward
+  ) external view override returns (uint256) {
+    return reward;
   }
 }

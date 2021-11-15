@@ -6,7 +6,13 @@ interface IMasterPAWCallback {
   function masterPAWCall(
     address stakeToken,
     address userAddr,
-    uint256 unboostedReward,
-    uint256 lastRewardBlock
+    uint256 _extraReward
   ) external;
+
+  function bubbleRewardLimit(
+    address stakeToken,
+    address userAddr,
+    uint256 unboostedBubbleReward,
+    uint256 unboostedReward
+  ) external view returns (uint256);
 }

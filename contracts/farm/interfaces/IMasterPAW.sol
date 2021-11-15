@@ -14,6 +14,8 @@ interface IMasterPAW {
       uint256,
       uint256,
       uint256,
+      uint256,
+      uint256,
       address
     );
 
@@ -46,6 +48,14 @@ interface IMasterPAW {
   function depositPAW(address _for, uint256 _amount) external;
 
   function withdrawPAW(address _for, uint256 _amount) external;
+
+  function noBubble(address _for, address _stakeToken) external;
+
+  function bubble(
+    address _for,
+    address _stakeToken,
+    uint256 _rate
+  ) external;
 
   function harvest(address _for, address _stakeToken) external;
 

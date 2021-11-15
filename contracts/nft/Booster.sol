@@ -237,7 +237,7 @@ contract Booster is
     function _harvestFromMasterPAW(address user, IERC20Upgradeable _stakeToken)
         internal
     {
-        (uint256 userStakeAmount, , , ) = masterPAW.userInfo(
+        (uint256 userStakeAmount, , , , , ) = masterPAW.userInfo(
             address(_stakeToken),
             user
         );
@@ -280,11 +280,21 @@ contract Booster is
         NFTStakingInfo memory toBeSentBackNft = userStakingNFT[_stakeToken][
             _msgSender()
         ];
-        require(
-            toBeSentBackNft.nftAddress != _nftAddress ||
-                toBeSentBackNft.nftTokenId != _nftTokenId,
-            "Booster::stakeNFT:: nft already staked"
+        (, uint256 currentEnergy, uint256 bps) = boosterConfig.energyInfo(
+            _nftAddress,
+            _nftTokenId
         );
+
+        require(
+            toBeSentBackNft.nftAddress == address(0),
+            "Booster::stakeNFT:: _stakeToken have already boosted"
+        );
+
+        require(
+            currentEnergy > 0,
+            "Booster::stakeNFT::nft booster consume out"
+        );
+
         _harvestFromMasterPAW(_msgSender(), IERC20Upgradeable(_stakeToken));
 
         userStakingNFT[_stakeToken][_msgSender()] = NFTStakingInfo({
@@ -298,13 +308,7 @@ contract Booster is
             _nftTokenId
         );
 
-        if (toBeSentBackNft.nftAddress != address(0)) {
-            IERC721(toBeSentBackNft.nftAddress).safeTransferFrom(
-                address(this),
-                _msgSender(),
-                toBeSentBackNft.nftTokenId
-            );
-        }
+        masterPAW.bubble(_msgSender(), _stakeToken, bps);
         emit StakeNFT(_msgSender(), _stakeToken, _nftAddress, _nftTokenId);
     }
 
@@ -332,6 +336,8 @@ contract Booster is
         );
 
         _harvestFromMasterPAW(_msgSender(), IERC20Upgradeable(_stakeToken));
+
+        masterPAW.noBubble(_msgSender(), _stakeToken);
 
         userStakingNFT[_stakeToken][_msgSender()] = NFTStakingInfo({
             nftAddress: address(0),
@@ -419,7 +425,7 @@ contract Booster is
         isStakeTokenOK(_stakeToken)
         nonReentrant
     {
-        (uint256 userStakeAmount, , , ) = masterPAW.userInfo(
+        (uint256 userStakeAmount, , , , , ) = masterPAW.userInfo(
             address(_stakeToken),
             _msgSender()
         );
@@ -456,50 +462,58 @@ contract Booster is
         }
     }
 
+    function bubbleRewardLimit(
+        address stakeToken,
+        address userAddr,
+        uint256 unboostedBubbleReward,
+        uint256 unboostedReward
+    ) external view override returns (uint256) {
+        NFTStakingInfo memory stakingNFT = userStakingNFT[stakeToken][userAddr];
+        if (stakingNFT.nftAddress == address(0)) {
+            return unboostedReward;
+        }
+        (, uint256 currentEnergy, ) = boosterConfig.energyInfo(
+            stakingNFT.nftAddress,
+            stakingNFT.nftTokenId
+        );
+        if (currentEnergy == 0) {
+            return unboostedReward;
+        }
+        return
+            unboostedReward.add(
+                MathUpgradeable.min(
+                    currentEnergy,
+                    unboostedBubbleReward.sub(unboostedReward)
+                )
+            );
+    }
+
     /// @dev a notifier function for letting some observer call when some conditions met
     /// @dev currently, the caller will be a master barista calling before a PAW lock
     function masterPAWCall(
         address stakeToken,
         address userAddr,
-        uint256 unboostedReward,
-        uint256 lastRewardBlock
+        uint256 _extraReward
     ) external override inExec {
-        NFTStakingInfo memory stakingNFT = userStakingNFT[stakeToken][userAddr];
         UserInfo storage user = userInfo[stakeToken][userAddr];
-        if (stakingNFT.nftAddress == address(0)) {
-            return;
-        }
-        (, uint256 currentEnergy, uint256 boostBps) = boosterConfig.energyInfo(
+        NFTStakingInfo memory stakingNFT = userStakingNFT[stakeToken][userAddr];
+        totalAccumBoostedReward[stakeToken] = totalAccumBoostedReward[
+            stakeToken
+        ].add(_extraReward);
+        user.accumBoostedReward = user.accumBoostedReward.add(_extraReward);
+        (, uint256 currentEnergy, ) = boosterConfig.energyInfo(
             stakingNFT.nftAddress,
             stakingNFT.nftTokenId
         );
-        if (currentEnergy == 0) {
-            return;
-        }
-        uint256 extraReward = MathUpgradeable.min(
-            currentEnergy,
-            unboostedReward.mul(boostBps).div(1e4)
-        );
-        totalAccumBoostedReward[stakeToken] = totalAccumBoostedReward[
-            stakeToken
-        ].add(extraReward);
-        user.accumBoostedReward = user.accumBoostedReward.add(extraReward);
-        uint256 newEnergy = currentEnergy.sub(extraReward);
-        masterPAW.mintExtraReward(
-            stakeToken,
-            userAddr,
-            extraReward,
-            lastRewardBlock
-        );
+        uint256 newEnergy = currentEnergy.sub(_extraReward);
         boosterConfig.consumeEnergy(
             stakingNFT.nftAddress,
             stakingNFT.nftTokenId,
-            extraReward
+            _extraReward
         );
-
         emit MasterPAWCall(
             userAddr,
-            extraReward,
+            _extraReward,
             stakeToken,
             currentEnergy,
             newEnergy
@@ -547,7 +561,7 @@ contract Booster is
         isStakeTokenOK(address(_stakeToken))
     {
         UserInfo storage user = userInfo[address(_stakeToken)][_msgSender()];
-        (uint256 userStakeAmount, , , ) = masterPAW.userInfo(
+        (uint256 userStakeAmount, , , , , ) = masterPAW.userInfo(
             address(_stakeToken),
             _msgSender()
         );

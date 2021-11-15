@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/math/MathUpgradeable.sol";
 
 import "../library/LinkList.sol";
 import "./interfaces/IPAW.sol";
@@ -23,12 +24,15 @@ contract MasterPAW is
     using SafeERC20 for IERC20;
     using LinkList for LinkList.List;
     using AddressUpgradeable for address;
+    using MathUpgradeable for uint256;
 
     // Info of each user.
     struct UserInfo {
         uint256 amount; // How many Staking tokens the user has provided.
         uint256 rewardDebt; // Reward debt. See explanation below.
         uint256 bonusDebt; // Last block that user exec something to the pool.
+        uint256 bubbleRate;
+        uint256 share;
         address fundedBy;
     }
 
@@ -39,6 +43,7 @@ contract MasterPAW is
         uint256 accPAWPerShare; // Accumulated PAW per share, times 1e12. See below.
         uint256 accPAWPerShareTilBonusEnd; // Accumated PAW per share until Bonus End.
         uint256 allocBps; // Pool allocation in BPS, if it's not a fixed bps pool, leave it 0
+        uint256 shares; //all shares
     }
 
     // PAW token.
@@ -175,7 +180,8 @@ contract MasterPAW is
             lastRewardBlock: startBlock,
             accPAWPerShare: 0,
             accPAWPerShareTilBonusEnd: 0,
-            allocBps: 0
+            allocBps: 0,
+            shares: 0
         });
         totalAllocPoint = 0;
     }
@@ -388,7 +394,8 @@ contract MasterPAW is
             lastRewardBlock: lastRewardBlock,
             accPAWPerShare: 0,
             accPAWPerShareTilBonusEnd: 0,
-            allocBps: 0
+            allocBps: 0,
+            shares: 0
         });
 
         updatePoolsAlloc();
@@ -563,7 +570,7 @@ contract MasterPAW is
         PoolInfo storage pool = poolInfo[_stakeToken];
         UserInfo storage user = userInfo[_stakeToken][_user];
         uint256 accPAWPerShare = pool.accPAWPerShare;
-        uint256 totalStakeToken = IERC20(_stakeToken).balanceOf(address(this));
+        uint256 totalStakeToken = pool.shares;
         if (block.number > pool.lastRewardBlock && totalStakeToken != 0) {
             uint256 multiplier = getMultiplier(
                 pool.lastRewardBlock,
@@ -577,7 +584,7 @@ contract MasterPAW is
                 PAWReward.mul(1e12).div(totalStakeToken)
             );
         }
-        return user.amount.mul(accPAWPerShare).div(1e12).sub(user.rewardDebt);
+        return user.share.mul(accPAWPerShare).div(1e12).sub(user.rewardDebt);
     }
 
     /// @dev Update reward vairables for all pools. Be careful of gas spending!
@@ -596,7 +603,7 @@ contract MasterPAW is
         if (block.number <= pool.lastRewardBlock || totalAllocPoint == 0) {
             return;
         }
-        uint256 totalStakeToken = IERC20(_stakeToken).balanceOf(address(this));
+        uint256 totalStakeToken = pool.shares;
         uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
         uint256 pawReward = multiplier
             .mul(PAWPerBlock)
@@ -617,7 +624,6 @@ contract MasterPAW is
         pool.accPAWPerShare = pool.accPAWPerShare.add(
             pawReward.mul(1e12).div(totalStakeToken)
         );
-
         // Clear bonus & update accPAWPerShareTilBonusEnd.
         if (block.number <= bonusEndBlock) {
             PAW.lock(
@@ -691,14 +697,70 @@ contract MasterPAW is
                 _amount
             );
             user.amount = user.amount.add(_amount);
+            pool.shares = pool.shares.add(_amount);
+            user.share = user.share.add(_amount);
+            if (user.bubbleRate > 0) {
+                user.share = user.share.add(
+                    _amount.mul(user.bubbleRate).div(1e4)
+                );
+                pool.shares = pool.shares.add(
+                    _amount.mul(user.bubbleRate).div(1e4)
+                );
+            }
         }
 
-        user.rewardDebt = user.amount.mul(pool.accPAWPerShare).div(1e12);
-        user.bonusDebt = user.amount.mul(pool.accPAWPerShareTilBonusEnd).div(
+        user.rewardDebt = user.share.mul(pool.accPAWPerShare).div(1e12);
+        user.bonusDebt = user.share.mul(pool.accPAWPerShareTilBonusEnd).div(
             1e12
         );
-
         emit Deposit(_msgSender(), _for, _stakeToken, _amount);
+    }
+
+    function noBubble(address _for, address _stakeToken)
+        external
+        override
+        nonReentrant
+    {
+        UserInfo storage user = userInfo[_stakeToken][_for];
+        PoolInfo storage pool = poolInfo[_stakeToken];
+
+        //permint by fundedBy
+        require(user.fundedBy == _msgSender(), "MasterPAW::deposit::bad sof");
+        user.bubbleRate = 0;
+
+        pool.shares = pool.shares.sub(user.share.sub(user.amount));
+
+        user.share = user.amount;
+        user.rewardDebt = user.share.mul(pool.accPAWPerShare).div(1e12);
+        user.bonusDebt = user.share.mul(pool.accPAWPerShareTilBonusEnd).div(
+            1e12
+        );
+    }
+
+    function bubble(
+        address _for,
+        address _stakeToken,
+        uint256 _rate
+    )
+        external
+        override
+        onlyPermittedTokenFunder(_for, _stakeToken)
+        nonReentrant
+    {
+        UserInfo storage user = userInfo[_stakeToken][_for];
+        require(user.bubbleRate == 0, "already bubble");
+        require(pools.has(_stakeToken), "MasterPAW::bubble::no pool");
+        user.bubbleRate = _rate;
+        uint256 _shareDif = user.amount.mul(user.bubbleRate).div(1e4);
+        user.share = user.share.add(_shareDif);
+
+        PoolInfo storage pool = poolInfo[_stakeToken];
+        pool.shares = pool.shares.add(_shareDif);
+
+        user.rewardDebt = user.share.mul(pool.accPAWPerShare).div(1e12);
+        user.bonusDebt = user.share.mul(pool.accPAWPerShareTilBonusEnd).div(
+            1e12
+        );
     }
 
     /// @dev Withdraw token from PAWMasterPAW.
@@ -734,11 +796,24 @@ contract MasterPAW is
 
         if (_amount > 0) {
             user.amount = user.amount.sub(_amount);
+            pool.shares = pool.shares.sub(_amount);
+            user.share = user.share.sub(_amount);
+
+            if (user.bubbleRate > 0) {
+                user.share = user.share.sub(
+                    _amount.mul(user.bubbleRate).div(1e4)
+                );
+                pool.shares = pool.shares.sub(
+                    _amount.mul(user.bubbleRate).div(1e4)
+                );
+            }
         }
-        user.rewardDebt = user.amount.mul(pool.accPAWPerShare).div(1e12);
-        user.bonusDebt = user.amount.mul(pool.accPAWPerShareTilBonusEnd).div(
+
+        user.rewardDebt = user.share.mul(pool.accPAWPerShare).div(1e12);
+        user.bonusDebt = user.share.mul(pool.accPAWPerShareTilBonusEnd).div(
             1e12
         );
+
         if (user.amount == 0) user.fundedBy = address(0);
         IERC20(_stakeToken).safeTransfer(_msgSender(), _amount);
 
@@ -774,9 +849,20 @@ contract MasterPAW is
                 _amount
             );
             user.amount = user.amount.add(_amount);
+            pool.shares = pool.shares.add(_amount);
+            user.share = user.share.add(_amount);
+
+            if (user.bubbleRate > 0) {
+                user.share = user.share.add(
+                    _amount.mul(user.bubbleRate).div(1e4)
+                );
+                pool.shares = pool.shares.add(
+                    _amount.mul(user.bubbleRate).div(1e4)
+                );
+            }
         }
-        user.rewardDebt = user.amount.mul(pool.accPAWPerShare).div(1e12);
-        user.bonusDebt = user.amount.mul(pool.accPAWPerShareTilBonusEnd).div(
+        user.rewardDebt = user.share.mul(pool.accPAWPerShare).div(1e12);
+        user.bonusDebt = user.share.mul(pool.accPAWPerShareTilBonusEnd).div(
             1e12
         );
 
@@ -808,9 +894,21 @@ contract MasterPAW is
         if (_amount > 0) {
             user.amount = user.amount.sub(_amount);
             IERC20(address(PAW)).safeTransfer(address(_msgSender()), _amount);
+
+            pool.shares = pool.shares.sub(_amount);
+            user.share = user.share.sub(_amount);
+
+            if (user.bubbleRate > 0) {
+                user.share = user.share.sub(
+                    _amount.mul(user.bubbleRate).div(1e4)
+                );
+                pool.shares = pool.shares.sub(
+                    _amount.mul(user.bubbleRate).div(1e4)
+                );
+            }
         }
-        user.rewardDebt = user.amount.mul(pool.accPAWPerShare).div(1e12);
-        user.bonusDebt = user.amount.mul(pool.accPAWPerShareTilBonusEnd).div(
+        user.rewardDebt = user.share.mul(pool.accPAWPerShare).div(1e12);
+        user.bonusDebt = user.share.mul(pool.accPAWPerShareTilBonusEnd).div(
             1e12
         );
         if (user.amount == 0) user.fundedBy = address(0);
@@ -833,9 +931,8 @@ contract MasterPAW is
         uint256 lastRewardBlock = pool.lastRewardBlock;
         updatePool(_stakeToken);
         _harvest(_for, _stakeToken, lastRewardBlock);
-
-        user.rewardDebt = user.amount.mul(pool.accPAWPerShare).div(1e12);
-        user.bonusDebt = user.amount.mul(pool.accPAWPerShareTilBonusEnd).div(
+        user.rewardDebt = user.share.mul(pool.accPAWPerShare).div(1e12);
+        user.bonusDebt = user.share.mul(pool.accPAWPerShareTilBonusEnd).div(
             1e12
         );
     }
@@ -853,11 +950,10 @@ contract MasterPAW is
             uint256 lastRewardBlock = pool.lastRewardBlock;
             updatePool(_stakeTokens[i]);
             _harvest(_for, _stakeTokens[i], lastRewardBlock);
-            user.rewardDebt = user.amount.mul(pool.accPAWPerShare).div(1e12);
-            user.bonusDebt = user
-                .amount
-                .mul(pool.accPAWPerShareTilBonusEnd)
-                .div(1e12);
+            user.rewardDebt = user.share.mul(pool.accPAWPerShare).div(1e12);
+            user.bonusDebt = user.share.mul(pool.accPAWPerShareTilBonusEnd).div(
+                1e12
+            );
         }
     }
 
@@ -867,7 +963,7 @@ contract MasterPAW is
     function _harvest(
         address _for,
         address _stakeToken,
-        uint256 _lastRewardBlock
+        uint256
     ) internal {
         PoolInfo memory pool = poolInfo[_stakeToken];
         UserInfo memory user = userInfo[_stakeToken][_for];
@@ -875,27 +971,58 @@ contract MasterPAW is
             user.fundedBy == _msgSender(),
             "MasterPAW::_harvest::only funder"
         );
-        require(user.amount > 0, "MasterPAW::_harvest::nothing to harvest");
-        uint256 pending = user.amount.mul(pool.accPAWPerShare).div(1e12).sub(
+        require(user.share > 0, "MasterPAW::_harvest::nothing to harvest");
+
+        uint256 pending = user.share.mul(pool.accPAWPerShare).div(1e12).sub(
             user.rewardDebt
         );
+        //pool share -= user.amount * bublleRate
+        uint256 poolshareWithoutBubble = pool.shares.sub(
+            user.amount.mul(user.bubbleRate).div(1e4)
+        );
+
+        //noBubblePending = pending * user.amount / user.share * pool.share / pool.shareWithoutBubble
+        uint256 noBubblePending = pending
+            .mul(user.amount)
+            .div(user.share)
+            .mul(pool.shares)
+            .div(poolshareWithoutBubble);
+
+        if (
+            stakeTokenCallerContracts[_stakeToken].has(_msgSender()) &&
+            user.bubbleRate > 0
+        ) {
+            //bubble reward has a limit
+            pending = MathUpgradeable.min(
+                pending,
+                IMasterPAWCallback(_msgSender()).bubbleRewardLimit(
+                    _stakeToken,
+                    _for,
+                    pending,
+                    noBubblePending
+                )
+            );
+        }
         require(
             pending <= PAW.balanceOf(address(bean)),
             "MasterPAW::_harvest::wait what.. not enough PAW"
         );
         uint256 bonus = user
-            .amount
+            .share
             .mul(pool.accPAWPerShareTilBonusEnd)
             .div(1e12)
             .sub(user.bonusDebt);
         bean.safePAWTransfer(_for, pending);
-        if (stakeTokenCallerContracts[_stakeToken].has(_msgSender())) {
+        if (
+            stakeTokenCallerContracts[_stakeToken].has(_msgSender()) &&
+            user.bubbleRate > 0
+        ) {
+            //record extra reward
             _MasterPAWCallee(
                 _msgSender(),
                 _stakeToken,
                 _for,
-                pending,
-                _lastRewardBlock
+                pending.sub(noBubblePending)
             );
         }
         PAW.lock(_for, bonus.mul(bonusLockUpBps).div(10000));
@@ -907,13 +1034,12 @@ contract MasterPAW is
     /// @param _caller that perhaps implement an onBeforeLock observing function
     /// @param _stakeToken parameter for sending a staoke token
     /// @param _for the user this callback will be used
-    /// @param _pending pending amount
+    /// @param _extraReward extra reward
     function _MasterPAWCallee(
         address _caller,
         address _stakeToken,
         address _for,
-        uint256 _pending,
-        uint256 _lastRewardBlock
+        uint256 _extraReward
     ) internal {
         if (!_caller.isContract()) {
             return;
@@ -923,8 +1049,7 @@ contract MasterPAW is
                 IMasterPAWCallback.masterPAWCall.selector,
                 _stakeToken,
                 _for,
-                _pending,
-                _lastRewardBlock
+                _extraReward
             )
         );
         require(
@@ -942,6 +1067,7 @@ contract MasterPAW is
         nonReentrant
     {
         UserInfo storage user = userInfo[_stakeToken][_for];
+        PoolInfo storage pool = poolInfo[_stakeToken];
         require(
             user.fundedBy == _msgSender(),
             "MasterPAW::emergencyWithdraw::only funder"
@@ -956,7 +1082,9 @@ contract MasterPAW is
         }
 
         // Reset user info
+        pool.shares = pool.shares.sub(user.share);
         user.amount = 0;
+        user.share = 0;
         user.rewardDebt = 0;
         user.bonusDebt = 0;
         user.fundedBy = address(0);

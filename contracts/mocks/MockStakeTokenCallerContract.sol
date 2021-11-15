@@ -47,7 +47,7 @@ contract MockStakeTokenCallerContract is IMasterPAWCallback {
 
   function _harvestFromMasterPAW(IERC20 _stakeToken) internal returns (uint256 reward) {
     uint256 stakeTokenBalance = _stakeToken.balanceOf(address(this));
-    (uint256 userStakeAmount, , , ) = MasterPAW.userInfo(address(address(_stakeToken)), msg.sender);
+    (uint256 userStakeAmount, , , , , ) = MasterPAW.userInfo(address(address(_stakeToken)), msg.sender);
 
     if (userStakeAmount == 0) return 0;
 
@@ -88,9 +88,17 @@ contract MockStakeTokenCallerContract is IMasterPAWCallback {
   function masterPAWCall(
     address, /*stakeToken*/
     address, /*userAddr*/
-    uint256, /*reward*/
-    uint256 /*lastRewardBlock*/
+    uint256 /*reward*/
   ) external override {
     emit OnBeforeLock();
+  }
+
+  function bubbleRewardLimit(
+    address,
+    address,
+    uint256,
+    uint256 unboostedReward
+  ) external view override returns (uint256) {
+    return unboostedReward;
   }
 }

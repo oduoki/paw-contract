@@ -21,24 +21,24 @@ contract BlindNFT is IPAWNFT, ERC721PausableUpgradeable, OwnableUpgradeable, Acc
   bytes32 public constant GOVERNANCE_ROLE = keccak256("GOVERNANCE_ROLE");
   bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE"); // role for minting stuff (owner + some delegated contract eg nft market)
 
-  uint256 public maxTotalSupply;
-  address public targetNFT;
-  uint256 public targetCategoryId;
+  struct Item {
+    address nft;
+    uint256 category; // category URI, a super set of token's uri (it can be either uri or a path (if specify a base URI))
+    uint256 maxSupply;
+    uint256 remaining;
+  }
 
   bytes32 private lastHash;
-  EnumerableSetUpgradeable.UintSet private luckyIds;
-  CountersUpgradeable.Counter private availableTokenIds;
   EnumerableSetUpgradeable.UintSet private openIds;
+  CountersUpgradeable.Counter private tokenIdCount;
+  Item[] public items;
 
-  event OpenBox(uint256 indexed tokenId, bool lucky);
+  event OpenBox(uint256 indexed tokenId, address nft, uint256 category);
 
   function initialize(
     string memory _name,
     string memory _symbol,
-    uint256 _maxTotalSupply,
-    string memory _baseURI,
-    address _targetNFT,
-    uint256 _targetCategoryId
+    string memory _baseURI
   ) external initializer {
     ERC721Upgradeable.__ERC721_init(_name, _symbol);
     ERC721PausableUpgradeable.__ERC721Pausable_init();
@@ -49,58 +49,81 @@ contract BlindNFT is IPAWNFT, ERC721PausableUpgradeable, OwnableUpgradeable, Acc
     _setupRole(MINTER_ROLE, _msgSender());
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
 
-    maxTotalSupply = _maxTotalSupply;
     _setBaseURI(_baseURI);
-    availableTokenIds = CountersUpgradeable.Counter({ _value: maxTotalSupply });
-    lastHash = keccak256(abi.encode(address(this), msg.sender, block.timestamp));
-
-    targetNFT = _targetNFT;
-    targetCategoryId = _targetCategoryId;
+    lastHash = keccak256(abi.encode(address(this), msg.sender, block.number));
   }
 
-  function initLuckNumber(uint256[] calldata _luckyIds) public onlyOwner {
-    for (uint256 i = 0; i < _luckyIds.length; i++) {
-      luckyIds.add(_luckyIds[i]);
+  function addItem(
+    address _nft,
+    uint256 _category,
+    uint256 _maxSupply
+  ) public onlyOwner {
+    items.push(Item({ nft: _nft, category: _category, maxSupply: _maxSupply, remaining: _maxSupply }));
+  }
+
+  function sortItems() public {
+    quickSortItem(int256(0), int256(items.length - 1));
+  }
+
+  function quickSortItem(int256 left, int256 right) internal {
+    int256 i = left;
+    int256 j = right;
+    if (i == j) return;
+    uint256 pivot = items[uint256(left + (right - left) / 2)].remaining;
+    while (i <= j) {
+      while (items[uint256(i)].remaining < pivot) i++;
+      while (pivot < items[uint256(j)].remaining) j--;
+      if (i <= j) {
+        Item memory tmp = items[uint256(i)];
+        items[uint256(i)] = items[uint256(j)];
+        items[uint256(j)] = tmp;
+        // (items[uint256(i)], items[uint256(j)]) = (items[uint256(j)], items[uint256(i)]);
+        i++;
+        j--;
+      }
     }
+    if (left < j) quickSortItem(left, j);
+    if (i < right) quickSortItem(i, right);
   }
 
-  function queryLuckyIds() public view returns (uint256[] memory) {
-    uint256[] memory tokenIds = new uint256[](luckyIds.length());
-    for (uint256 i = 0; i < luckyIds.length(); i++) {
-      tokenIds[i] = luckyIds.at(i);
+  function sumItems(uint256 n) internal view returns (uint256) {
+    uint256 sum = 0;
+    for (uint256 i = 0; i < n; i++) {
+      sum = sum + items[i].remaining;
     }
-    return tokenIds;
-  }
-
-  function isIdLucky(uint256 tokenId) public view returns (bool) {
-    return luckyIds.contains(tokenId);
-  }
-
-  function queryOpenIds() public view returns (uint256[] memory) {
-    uint256[] memory tokenIds = new uint256[](openIds.length());
-    for (uint256 i = 0; i < openIds.length(); i++) {
-      tokenIds[i] = openIds.at(i);
-    }
-    return tokenIds;
+    return sum;
   }
 
   function isIdOpen(uint256 tokenId) public view returns (bool) {
     return openIds.contains(tokenId);
   }
 
-  function queryAvailableTokenIds() public view returns (uint256) {
-    return availableTokenIds.current();
+  function itemsLength() public view returns (uint256) {
+    return items.length;
+  }
+
+  /// @notice return latest token id
+  /// @return uint256 of the current token id
+  function currentTokenId() public view override returns (uint256) {
+    return tokenIdCount.current();
   }
 
   function openBox(uint256 tokenId) public {
     require(ownerOf(tokenId) == msg.sender, "BlindNFT::openBox::only open self box");
     require(!isIdOpen(tokenId), "BlindNFT::openBox::already open");
     openIds.add(tokenId);
-    if (isIdLucky(tokenId)) {
-      IPAWNFT(targetNFT).mint(msg.sender, targetCategoryId, "");
-      emit OpenBox(tokenId, true);
-    } else {
-      emit OpenBox(tokenId, false);
+
+    lastHash = keccak256(abi.encode(lastHash, msg.sender, tokenId, block.timestamp));
+
+    uint256 seed = (uint256(lastHash) % sumItems(items.length)) + 1;
+    sortItems();
+    for (uint256 i = 0; i < items.length; i++) {
+      if (seed < sumItems(i + 1) || (i == items.length - 1 && seed == sumItems(i + 1))) {
+        items[i].remaining = items[i].remaining - 1;
+        IPAWNFT(items[i].nft).mint(msg.sender, items[i].category, "");
+        emit OpenBox(tokenId, items[i].nft, items[i].category);
+        break;
+      }
     }
   }
 
@@ -109,24 +132,10 @@ contract BlindNFT is IPAWNFT, ERC721PausableUpgradeable, OwnableUpgradeable, Acc
     uint256,
     string calldata
   ) public override onlyMinter whenNotPaused returns (uint256) {
-    require(availableTokenIds.current() > 0, "BlindNFT::mint::no available to mint");
-
-    lastHash = keccak256(abi.encode(lastHash, _to, block.timestamp));
-    uint256 seed = uint256(lastHash) & 0xffffff;
-    seed = seed.mod(maxTotalSupply);
-    uint256 tokenId = 0;
-    //token id from [1...maxTotalSupply]
-    for (uint256 index = 0; index < maxTotalSupply; index++) {
-      uint256 _tokenId = seed.add(index).mod(maxTotalSupply).add(1);
-      if (_tokenId != 0 && !_exists(_tokenId)) {
-        tokenId = _tokenId;
-        break;
-      }
-    }
-    require(tokenId > 0, "BlindNFT::mint::must find a token id");
-    _mint(_to, tokenId);
-    availableTokenIds.decrement();
-    return tokenId;
+    uint256 newId = tokenIdCount.current();
+    tokenIdCount.increment();
+    _mint(_to, newId);
+    return newId;
   }
 
   function mintBatch(
@@ -136,7 +145,6 @@ contract BlindNFT is IPAWNFT, ERC721PausableUpgradeable, OwnableUpgradeable, Acc
     uint256 _size
   ) external override onlyMinter whenNotPaused returns (uint256[] memory tokenIds) {
     require(_size != 0, "BlindNFT::mintBatch::size must be granter than zero");
-    require(_size <= availableTokenIds.current(), "BlindNFT::mintBatch::size must be lower than available");
     tokenIds = new uint256[](_size);
     for (uint256 i = 0; i < _size; ++i) {
       tokenIds[i] = mint(_to, _categoryId, _tokenURI);
@@ -157,10 +165,6 @@ contract BlindNFT is IPAWNFT, ERC721PausableUpgradeable, OwnableUpgradeable, Acc
   function pawNames(uint256) external view override returns (string memory) {
     return name();
   }
-
-  /// @notice return latest token id
-  /// @return uint256 of the current token id
-  function currentTokenId() public view override returns (uint256) {}
 
   function currentCategoryId() external view override returns (uint256) {}
 
