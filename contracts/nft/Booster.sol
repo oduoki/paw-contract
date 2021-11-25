@@ -56,7 +56,6 @@ contract Booster is
         uint256 nftTokenId;
     }
 
-    //user info, stakeToken => user => userINFO
     mapping(address => mapping(address => UserInfo)) public userInfo;
 
     mapping(address => uint256) public totalAccumBoostedReward;

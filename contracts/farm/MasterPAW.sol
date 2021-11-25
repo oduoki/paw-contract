@@ -725,7 +725,11 @@ contract MasterPAW is
         PoolInfo storage pool = poolInfo[_stakeToken];
 
         //permint by fundedBy
-        require(user.fundedBy == _msgSender(), "MasterPAW::deposit::bad sof");
+        if (user.fundedBy != address(0))
+            require(
+                user.fundedBy == _msgSender(),
+                "MasterPAW::nobubble::bad sof"
+            );
         user.bubbleRate = 0;
 
         pool.shares = pool.shares.sub(user.share.sub(user.amount));
