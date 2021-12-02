@@ -109,14 +109,6 @@ contract OGNFTOffering is ERC721HolderUpgradeable, OwnableUpgradeable, PausableU
     emit SetFeePercent(_msgSender(), 0, feePercentBps);
   }
 
-  /**
-   * @notice check address
-   */
-  modifier validAddress(address _addr) {
-    require(_addr != address(0));
-    _;
-  }
-
   /// @notice only GOVERNANCE ROLE (role that can setup NON sensitive parameters) can continue the execution
   modifier onlyGovernance() {
     require(hasRole(GOVERNANCE_ROLE, _msgSender()), "OGNFTOffering::onlyGovernance::only GOVERNANCE role");
@@ -255,6 +247,22 @@ contract OGNFTOffering is ERC721HolderUpgradeable, OwnableUpgradeable, PausableU
     IERC20Upgradeable _quoteToken
   ) external whenNotPaused onlyGovernance {
     _readyToSellNFTTo(_categoryId, address(_msgSender()), _cap, _startBlock, _endBlock, _quoteToken);
+  }
+
+  /// @param _categoryId - category id for each nft address
+  /// @param _to - whom this token is selling to
+  /// @param _cap - total cap for this nft address with a category id
+  /// @param _startBlock - starting block for a sale
+  /// @param _endBlock - end block for a sale
+  function readyToSellNFTTo(
+    uint256 _categoryId,
+    address _to,
+    uint256 _cap,
+    uint256 _startBlock,
+    uint256 _endBlock,
+    IERC20Upgradeable _quoteToken
+  ) external whenNotPaused onlyGovernance {
+    _readyToSellNFTTo(_categoryId, _to, _cap, _startBlock, _endBlock, _quoteToken);
   }
 
   /// @dev an internal function for readyToSellNFTTo

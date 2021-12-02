@@ -64,7 +64,7 @@ contract PAWNFT is IPAWNFT, ERC721PausableUpgradeable, OwnableUpgradeable, Acces
   }
 
   modifier onlyExistingCategoryId(uint256 _categoryId) {
-    require(_categoryIds.current() >= _categoryId, "PAWNFT::onlyExistingCategoryId::categoryId not existed");
+    require(_categoryIds.current() > _categoryId, "PAWNFT::onlyExistingCategoryId::categoryId not existed");
     _;
   }
 

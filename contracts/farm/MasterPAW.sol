@@ -281,6 +281,7 @@ contract MasterPAW is
     /// @dev Update dev address by the previous dev.
     /// @param _devAddr The new dev address
     function setDev(address _devAddr) external {
+        require(_devAddr != address(0), "MasterPAW::setDev:: no zero address");
         require(
             _msgSender() == devAddr,
             "MasterPAW::setDev::only prev dev can changed dev address"
@@ -562,7 +563,7 @@ contract MasterPAW is
     /// @param _stakeToken The stake token
     /// @param _user The address of a user
     function pendingPAW(address _stakeToken, address _user)
-        external
+        public
         view
         override
         returns (uint256)
@@ -585,6 +586,49 @@ contract MasterPAW is
             );
         }
         return user.share.mul(accPAWPerShare).div(1e12).sub(user.rewardDebt);
+    }
+
+    /// @dev View function to see pending PAWs on frontend.
+    /// @param _stakeToken The stake token
+    /// @param _user The address of a user
+    function pendingPAWByBubble(
+        address _stakeToken,
+        address _user,
+        address _funder
+    ) external view returns (uint256) {
+        PoolInfo storage pool = poolInfo[_stakeToken];
+        UserInfo storage user = userInfo[_stakeToken][_user];
+
+        uint256 pending = pendingPAW(_stakeToken, _user);
+
+        if (
+            stakeTokenCallerContracts[_stakeToken].has(_funder) &&
+            user.bubbleRate > 0
+        ) {
+            //pool share -= user.amount * bublleRate
+            uint256 poolshareWithoutBubble = pool.shares.sub(
+                user.amount.mul(user.bubbleRate).div(1e4)
+            );
+
+            //noBubblePending = pending * user.amount / user.share * pool.share / pool.shareWithoutBubble
+            uint256 noBubblePending = pending
+                .mul(user.amount)
+                .div(user.share)
+                .mul(pool.shares)
+                .div(poolshareWithoutBubble);
+
+            //bubble reward has a limit
+            pending = MathUpgradeable.min(
+                pending,
+                IMasterPAWCallback(_funder).bubbleRewardLimit(
+                    _stakeToken,
+                    _user,
+                    pending,
+                    noBubblePending
+                )
+            );
+        }
+        return pending;
     }
 
     /// @dev Update reward vairables for all pools. Be careful of gas spending!

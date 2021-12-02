@@ -120,7 +120,7 @@ contract OGNFT is
   }
 
   modifier onlyExistingCategoryId(uint256 _categoryId) {
-    require(_categoryIds.current() >= _categoryId, "OGNFT::onlyExistingCategoryId::categoryId not existed");
+    require(_categoryIds.current() > _categoryId, "OGNFT::onlyExistingCategoryId::categoryId not existed");
     _;
   }
 
@@ -358,7 +358,11 @@ contract OGNFT is
   /// @notice setCategoryOGOwnerToken for setting an ogOwnerToken with regard to a category id
   /// @param _categoryId - a category id
   /// @param _ogOwnerToken - BEP20 og token for staking at a master barista
-  function setCategoryOGOwnerToken(uint256 _categoryId, address _ogOwnerToken) external onlyGovernance {
+  function setCategoryOGOwnerToken(uint256 _categoryId, address _ogOwnerToken)
+    external
+    onlyExistingCategoryId(_categoryId)
+    onlyGovernance
+  {
     ogOwnerToken[_categoryId] = IOGOwnerToken(_ogOwnerToken);
 
     emit SetOgOwnerToken(_categoryId, _ogOwnerToken);

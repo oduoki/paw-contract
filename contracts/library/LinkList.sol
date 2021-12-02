@@ -23,6 +23,7 @@ library LinkList {
   }
 
   function add(List storage list, address addr) internal returns (List memory) {
+    require(list.next[start] != empty, "LinkList::add:: list should be init");
     require(!has(list, addr), "LinkList::add:: addr is already in the list");
     list.next[addr] = list.next[start];
     list.next[start] = addr;

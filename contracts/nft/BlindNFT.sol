@@ -108,7 +108,7 @@ contract BlindNFT is IPAWNFT, ERC721PausableUpgradeable, OwnableUpgradeable, Acc
     return tokenIdCount.current();
   }
 
-  function openBox(uint256 tokenId) public {
+  function openBox(uint256 tokenId) public onlyEOA {
     require(ownerOf(tokenId) == msg.sender, "BlindNFT::openBox::only open self box");
     require(!isIdOpen(tokenId), "BlindNFT::openBox::already open");
     openIds.add(tokenId);
@@ -200,6 +200,12 @@ contract BlindNFT is IPAWNFT, ERC721PausableUpgradeable, OwnableUpgradeable, Acc
   /// @dev only the one having a MINTER_ROLE can continue an execution
   modifier onlyMinter() {
     require(hasRole(MINTER_ROLE, _msgSender()), "BlindNFT::onlyMinter::only MINTER role");
+    _;
+  }
+
+  /// @dev Require that the caller must be an EOA account to avoid flash loans.
+  modifier onlyEOA() {
+    require(msg.sender == tx.origin, "Booster::onlyEOA:: not eoa");
     _;
   }
 }

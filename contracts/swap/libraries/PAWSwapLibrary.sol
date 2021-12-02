@@ -3,8 +3,8 @@
 pragma solidity >=0.5.0;
 
 import "../interfaces/IPAWSwapPair.sol";
+import "../interfaces/IPAWSwapFactory.sol";
 import "./PAWSwapSafeMath.sol";
-import "hardhat/console.sol";
 
 library PAWSwapLibrary {
   using PAWSwapSafeMath for uint256;
@@ -23,17 +23,9 @@ library PAWSwapLibrary {
     address tokenB
   ) internal pure returns (address pair) {
     (address token0, address token1) = sortTokens(tokenA, tokenB);
+    bytes32 initCode = IPAWSwapFactory(factory).pairCodeHash();
     pair = address(
-      uint256(
-        keccak256(
-          abi.encodePacked(
-            hex"ff",
-            factory,
-            keccak256(abi.encodePacked(token0, token1)),
-            hex"603d4e81090a8ffd3d999c1178970e6a3b0ebfbd2049b93806037995b8aa33c2" // init code hash
-          )
-        )
-      )
+      uint256(keccak256(abi.encodePacked(hex"ff", factory, keccak256(abi.encodePacked(token0, token1)), initCode)))
     );
   }
 
@@ -43,12 +35,8 @@ library PAWSwapLibrary {
     address tokenA,
     address tokenB
   ) internal view returns (uint256 reserveA, uint256 reserveB) {
-    console.log("xxxxx");
     (address token0, ) = sortTokens(tokenA, tokenB);
-    address yyypair = pairFor(factory, tokenA, tokenB);
-    console.log("yyyyyy", yyypair);
     (uint256 reserve0, uint256 reserve1, ) = IPAWSwapPair(pairFor(factory, tokenA, tokenB)).getReserves();
-    console.log("zzzzzz");
     (reserveA, reserveB) = tokenA == token0 ? (reserve0, reserve1) : (reserve1, reserve0);
   }
 

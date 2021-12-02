@@ -13,11 +13,6 @@ contract OGOwnerToken is IOGOwnerToken, ERC20Upgradeable, OwnableUpgradeable {
 
   mapping(address => bool) public okHolders;
 
-  modifier onlyTimelock() {
-    require(timelock == msg.sender, "OGOwnerToken::onlyTimelock:: msg.sender not timelock");
-    _;
-  }
-
   event SetOkHolders(address indexed holder, bool isOk);
 
   function initialize(

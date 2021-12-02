@@ -57,6 +57,7 @@ contract PAW is ERC20("PAW", "PAW"), Ownable {
   /// @param _cap The new cap
   function setCap(uint256 _cap) external onlyGovernor {
     require(_cap < cap, "PAW::setCap::_cap must < cap");
+    require(_cap > totalSupply(), "PAW::setCap::_cap must > totalSupply");
     uint256 prevCap = cap;
     cap = _cap;
     emit CapChanged(prevCap, cap);
@@ -65,6 +66,7 @@ contract PAW is ERC20("PAW", "PAW"), Ownable {
   /// @dev Set a new governor
   /// @param _governor The new governor
   function setGovernor(address _governor) external onlyGovernor {
+    require(_governor != address(0), "PAW::setGovernor::no zero address set");
     require(governor != _governor, "PAW::setGovernor::no self set");
     address prevGov = governor;
     governor = _governor;
@@ -130,6 +132,10 @@ contract PAW is ERC20("PAW", "PAW"), Ownable {
   /// @param _account The address that will own this locked amount
   /// @param _amount The locked amount
   function lock(address _account, uint256 _amount) external onlyOwner {
+    if (block.number > endReleaseBlock || _amount == 0) {
+      return;
+    }
+
     require(_account != address(this), "PAW::lock::no lock to token address");
     require(_account != address(0), "PAW::lock::no lock to address(0)");
     require(_amount <= balanceOf(_account), "PAW::lock::no lock over balance");
@@ -172,18 +178,16 @@ contract PAW is ERC20("PAW", "PAW"), Ownable {
 
     uint256 amount = canUnlockAmount(msg.sender);
 
-    _transfer(address(this), msg.sender, amount);
     _locks[msg.sender] = _locks[msg.sender].sub(amount);
     _lastUnlockBlock[msg.sender] = block.number;
     _totalLock = _totalLock.sub(amount);
+    _transfer(address(this), msg.sender, amount);
   }
 
   /// @dev Move both locked and unlocked PAW to another account
   /// @param _to The address to be received locked and unlocked PAW
   function transferAll(address _to) external {
     require(msg.sender != _to, "PAW::transferAll::no self-transferAll");
-
-    _locks[_to] = _locks[_to].add(_locks[msg.sender]);
 
     if (_lastUnlockBlock[_to] < startReleaseBlock) {
       _lastUnlockBlock[_to] = startReleaseBlock;
@@ -200,6 +204,7 @@ contract PAW is ERC20("PAW", "PAW"), Ownable {
       _lastUnlockBlock[_to] = numerator.div(denominator);
     }
 
+    _locks[_to] = _locks[_to].add(_locks[msg.sender]);
     _locks[msg.sender] = 0;
     _lastUnlockBlock[msg.sender] = 0;
 

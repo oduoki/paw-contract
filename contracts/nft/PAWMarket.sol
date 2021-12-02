@@ -142,13 +142,6 @@ contract PAWMarket is ERC721HolderUpgradeable, OwnableUpgradeable, PausableUpgra
     _;
   }
 
-  /// @notice only verified signature can continue a statement
-  modifier permit(bytes calldata _sig) {
-    address recoveredAddress = ECDSAUpgradeable.recover(ECDSAUpgradeable.toEthSignedMessageHash(SIGNATURE_HASH), _sig);
-    require(recoveredAddress == _msgSender(), "PAWMarket::permit::INVALID_SIGNATURE");
-    _;
-  }
-
   /// @dev Require that the caller must be an EOA account to avoid flash loans.
   modifier onlyEOA() {
     require(msg.sender == tx.origin, "PAWMarket::onlyEOA:: not eoa");
