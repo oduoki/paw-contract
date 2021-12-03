@@ -20,6 +20,4 @@ interface IPAWSwapFactory {
   function setFeeTo(address) external;
 
   function setFeeToSetter(address) external;
-
-  function pairCodeHash() external pure returns (bytes32);
 }

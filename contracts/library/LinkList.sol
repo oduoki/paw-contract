@@ -39,6 +39,7 @@ library LinkList {
   ) internal returns (List memory) {
     require(has(list, addr), "LinkList::remove:: addr not whitelisted yet");
     require(list.next[prevAddr] == addr, "LinkList::remove:: wrong prevConsumer");
+    require(addr != start, "LinkList::remove wrong addr");
     list.next[prevAddr] = list.next[addr];
     list.next[addr] = empty;
     list.llSize--;
@@ -57,6 +58,9 @@ library LinkList {
   }
 
   function getPreviousOf(List storage list, address addr) internal view returns (address) {
+    if (!has(list, addr)) {
+      return empty;
+    }
     address curr = list.next[start];
     require(curr != empty, "LinkList::getPreviousOf:: please init the linkedlist first");
     for (uint256 i = 0; curr != end; i++) {

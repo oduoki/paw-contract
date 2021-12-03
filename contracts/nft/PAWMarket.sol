@@ -466,7 +466,7 @@ contract PAWMarket is ERC721HolderUpgradeable, OwnableUpgradeable, PausableUpgra
   /// @dev set a new fee Percentage BPS
   function setFeePercent(uint256 _feePercentBps) external onlyOwner {
     require(feePercentBps != _feePercentBps, "PAWMarket::setFeePercent::Not need update");
-    require(feePercentBps <= 1e4, "PAWMarket::setFeePercent::percent exceed 100%");
+    require(_feePercentBps <= 1e4, "PAWMarket::setFeePercent::percent exceed 100%");
     emit SetFeePercent(_msgSender(), feePercentBps, _feePercentBps);
     feePercentBps = _feePercentBps;
   }

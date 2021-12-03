@@ -314,7 +314,7 @@ contract OGNFTOffering is ERC721HolderUpgradeable, OwnableUpgradeable, PausableU
   /// @dev set a new fee Percentage BPS
   function setFeePercent(uint256 _feePercentBps) external onlyOwner {
     require(feePercentBps != _feePercentBps, "OGNFTOffering::setFeePercent::Not need update");
-    require(feePercentBps <= 1e4, "OGNFTOffering::setFeePercent::percent exceed 100%");
+    require(_feePercentBps <= 1e4, "OGNFTOffering::setFeePercent::percent exceed 100%");
     emit SetFeePercent(_msgSender(), feePercentBps, _feePercentBps);
     feePercentBps = _feePercentBps;
   }

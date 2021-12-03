@@ -23,9 +23,17 @@ library PAWSwapLibrary {
     address tokenB
   ) internal pure returns (address pair) {
     (address token0, address token1) = sortTokens(tokenA, tokenB);
-    bytes32 initCode = IPAWSwapFactory(factory).pairCodeHash();
     pair = address(
-      uint256(keccak256(abi.encodePacked(hex"ff", factory, keccak256(abi.encodePacked(token0, token1)), initCode)))
+      uint256(
+        keccak256(
+          abi.encodePacked(
+            hex"ff",
+            factory,
+            keccak256(abi.encodePacked(token0, token1)),
+            hex"603d4e81090a8ffd3d999c1178970e6a3b0ebfbd2049b93806037995b8aa33c2" // init code hash
+          )
+        )
+      )
     );
   }
 

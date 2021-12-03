@@ -224,6 +224,10 @@ contract MasterPAW is
     /// @param _stakeToken a stakeToken to be validated
     modifier onlyStakeTokenCallerContract(address _stakeToken) {
         require(
+            stakeTokenCallerAllowancePool[_stakeToken],
+            "only allowed caller"
+        );
+        require(
             stakeTokenCallerContracts[_stakeToken].has(_msgSender()),
             "MasterPAW::onlyStakeTokenCallerContract: bad caller"
         );
@@ -789,12 +793,7 @@ contract MasterPAW is
         address _for,
         address _stakeToken,
         uint256 _rate
-    )
-        external
-        override
-        onlyPermittedTokenFunder(_for, _stakeToken)
-        nonReentrant
-    {
+    ) external override onlyStakeTokenCallerContract(_stakeToken) nonReentrant {
         UserInfo storage user = userInfo[_stakeToken][_for];
         require(user.bubbleRate == 0, "already bubble");
         require(pools.has(_stakeToken), "MasterPAW::bubble::no pool");
