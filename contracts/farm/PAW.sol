@@ -86,8 +86,7 @@ contract PAW is ERC20("PAW", "PAW"), Ownable {
   /// @param _recipient The address of the account that will be credited
   /// @param _amount The amount to be moved
   function transfer(address _recipient, uint256 _amount) public virtual override returns (bool) {
-    _transfer(_msgSender(), _recipient, _amount);
-    _moveDelegates(_delegates[_msgSender()], _delegates[_recipient], _amount);
+    _transferWithDelegate(_msgSender(), _recipient, _amount);
     return true;
   }
 
@@ -100,13 +99,13 @@ contract PAW is ERC20("PAW", "PAW"), Ownable {
     address _recipient,
     uint256 _amount
   ) public virtual override returns (bool) {
-    _transfer(_sender, _recipient, _amount);
+    _transferWithDelegate(_sender, _recipient, _amount);
     _approve(
       _sender,
       _msgSender(),
       allowance(_sender, _msgSender()).sub(_amount, "PAW::transferFrom::transfer amount exceeds allowance")
     );
-    _moveDelegates(_delegates[_sender], _delegates[_recipient], _amount);
+
     return true;
   }
 
@@ -128,6 +127,15 @@ contract PAW is ERC20("PAW", "PAW"), Ownable {
     return _lastUnlockBlock[_account];
   }
 
+  function _transferWithDelegate(
+    address _sender,
+    address _recipient,
+    uint256 _amount
+  ) internal {
+    _moveDelegates(_delegates[_sender], _delegates[_recipient], _amount);
+    _transfer(_sender, _recipient, _amount);
+  }
+
   /// @dev Lock PAW based-on the command from MasterPAW
   /// @param _account The address that will own this locked amount
   /// @param _amount The locked amount
@@ -140,7 +148,7 @@ contract PAW is ERC20("PAW", "PAW"), Ownable {
     require(_account != address(0), "PAW::lock::no lock to address(0)");
     require(_amount <= balanceOf(_account), "PAW::lock::no lock over balance");
 
-    _transfer(_account, address(this), _amount);
+    _transferWithDelegate(_account, address(this), _amount);
 
     _locks[_account] = _locks[_account].add(_amount);
     _totalLock = _totalLock.add(_amount);
@@ -181,7 +189,7 @@ contract PAW is ERC20("PAW", "PAW"), Ownable {
     _locks[msg.sender] = _locks[msg.sender].sub(amount);
     _lastUnlockBlock[msg.sender] = block.number;
     _totalLock = _totalLock.sub(amount);
-    _transfer(address(this), msg.sender, amount);
+    _transferWithDelegate(address(this), msg.sender, amount);
   }
 
   /// @dev Move both locked and unlocked PAW to another account
@@ -208,8 +216,7 @@ contract PAW is ERC20("PAW", "PAW"), Ownable {
     _locks[msg.sender] = 0;
     _lastUnlockBlock[msg.sender] = 0;
 
-    _moveDelegates(_delegates[_msgSender()], _delegates[_to], balanceOf(_msgSender()));
-    _transfer(msg.sender, _to, balanceOf(_msgSender()));
+    _transferWithDelegate(msg.sender, _to, balanceOf(_msgSender()));
   }
 
   // Copied and modified from YAM code:

@@ -801,6 +801,8 @@ contract MasterPAW is
         uint256 _shareDif = user.amount.mul(user.bubbleRate).div(1e4);
         user.share = user.share.add(_shareDif);
 
+        if (user.fundedBy == address(0)) user.fundedBy = _msgSender();
+
         PoolInfo storage pool = poolInfo[_stakeToken];
         pool.shares = pool.shares.add(_shareDif);
 
